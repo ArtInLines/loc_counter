@@ -16,8 +16,6 @@ const spec = {
 	'-H': '--help',
 
 	'--version': Boolean,
-	'-v': '--version',
-	'-V': '--version',
 
 	'--verbose': arg.COUNT,
 	'-v': '--verbose',
