@@ -1,0 +1,16 @@
+{
+	"name": "loc_counter",
+	"version": "0.1.0",
+	"description": "",
+	"main": "index.js",
+	"dependencies": {
+		"ansi-colors": "^4.1.3",
+		"arg": "^5.0.2"
+	},
+	"devDependencies": {},
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"author": "ArtInLines",
+	"license": "MIT"
+}
