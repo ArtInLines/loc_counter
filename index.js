@@ -1,6 +1,59 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const glob = require('glob');
+
+const GLOB_OPTS = { nocase: true };
+
+function isDirPattern(str) {
+	return str.endsWith('/');
+}
+
+function ensureRecursivePattern(pattern) {
+	if (pattern.startsWith('**/')) return pattern;
+	else return '**/' + pattern;
+}
+
+/**
+ * Splits by / and if that didn't split the string, splits it by \ instead. This way the splitting should hopefully work for both windows and mac.
+ * @param {String} str
+ * @returns {String[]}
+ */
+function mySplit(str) {
+	let res = str.split('/');
+	if (res.length === 1) res = str.split('\\');
+	if (!res[0]) res = res.slice(1);
+	return res.map((s) => s.trim()).filter((s) => s !== '');
+}
+
+/**
+ * Check whether the two patterns match. For example
+ * @param {String} fpath
+ * @param {String[] | String} toExclude
+ */
+function isPathExcluded(fpath, toExclude) {
+	if (!Array.isArray(toExclude)) toExclude = [toExclude];
+	for (let pattern of toExclude) {
+		if (isDirPattern(pattern)) {
+			let dirs = mySplit(pattern);
+			let splitFPath = mySplit(fpath);
+			let idx = splitFPath.findIndex((s) => s === dirs[0]);
+			if (idx !== -1) {
+				let matched = true;
+				for (let i = 1; i < dirs.length; i++) {
+					if (splitFPath[idx + i] !== dirs[i]) {
+						matched = false;
+						break;
+					}
+				}
+				if (matched) return true;
+			}
+		} else {
+			if (fpath.endsWith(pattern)) return true;
+		}
+	}
+	return false;
+}
 
 function countLine(line, lineComments = [], blockComments = [], inBlockComment = false, excludeComments = lineComments.length + blockComments.length > 0, excludeEmptyLines = true) {
 	let l = line.trim();
@@ -61,9 +114,7 @@ async function count_loc_of_file(filepath, commentStyles = null, excludeComments
 	return lineCount;
 }
 
-async function count_loc_of_dir(dirpath, exclude = [], include = [], recursive = true, fileTypes = null, commentStyles = null, excludeComments = commentStyles !== null, excludeEmptyLines = true) {
-	// TODO: Use "exclude" and "include" variables
-
+async function count_loc_of_dir(dirpath, toExclude, recursive, fileTypes = null, commentStyles = null, excludeComments = commentStyles !== null, excludeEmptyLines = true) {
 	let dir = fs.readdirSync(dirpath, { withFileTypes: true });
 	let files = dir.filter((dirent) => dirent.isFile());
 	if (fileTypes !== null) {
@@ -76,25 +127,31 @@ async function count_loc_of_dir(dirpath, exclude = [], include = [], recursive =
 
 	let totalCount = 0;
 	for await (const f of files) {
-		let c = await count_loc_of_file(path.join(dirpath, f.name), commentStyles, excludeComments, excludeEmptyLines);
-		fileCounts[f.name] = c;
-		totalCount += c;
+		let fpath = path.join(dirpath, f.name);
+		if (!isPathExcluded(fpath, toExclude)) {
+			let c = await count_loc_of_file(fpath, commentStyles, excludeComments, excludeEmptyLines);
+			fileCounts[f.name] = c;
+			totalCount += c;
+		}
 	}
 	let nonRecDirCount = totalCount;
 
 	if (recursive) {
 		const subdirs = dir.filter((dirent) => dirent.isDirectory());
 		for await (const d of subdirs) {
-			let r = await count_loc_of_dir(path.join(dirpath, d.name), exclude, include, recursive, fileTypes, commentStyles, excludeComments, excludeEmptyLines);
+			let dpath = path.join(dirpath, d.name);
+			if (!isPathExcluded(dpath, toExclude)) {
+				let r = await count_loc_of_dir(dpath, toExclude, recursive, fileTypes, commentStyles, excludeComments, excludeEmptyLines);
 
-			dirCounts[d.name] = { totalCount: r.totalCount, nonRecDirCount: r.nonRecDirCount };
-			for (let k of Object.keys(r.dirCounts)) {
-				dirCounts[d.name + '/' + k] = r.dirCounts[k];
+				dirCounts[d.name] = { totalCount: r.totalCount, nonRecDirCount: r.nonRecDirCount };
+				for (let k of Object.keys(r.dirCounts)) {
+					dirCounts[d.name + '/' + k] = r.dirCounts[k];
+				}
+				for (let k of Object.keys(r.fileCounts)) {
+					fileCounts[d.name + '/' + k] = r.fileCounts[k];
+				}
+				totalCount += r.totalCount;
 			}
-			for (let k of Object.keys(r.fileCounts)) {
-				fileCounts[d.name + '/' + k] = r.fileCounts[k];
-			}
-			totalCount += r.totalCount;
 		}
 	}
 	return { totalCount, nonRecDirCount, fileCounts, dirCounts, name: dirpath.split('/').at(-1).split('\\').at(-1) };
@@ -102,17 +159,46 @@ async function count_loc_of_dir(dirpath, exclude = [], include = [], recursive =
 
 async function count_loc(dirs, files, include, exclude, recursive, filetypes, excludeEmptyLines, excludeComments, commentStyles) {
 	// console.log({ dirs, files, include, exclude, recursive, filetypes, excludeEmptyLines, excludeComments, commentStyles });
-
 	let dirRes = [];
 	let fileRes = [];
+	let toInclude = [];
+	let toExclude = [];
+
+	if (recursive) {
+		include = include.map((p) => ensureRecursivePattern(p));
+		exclude = exclude.map((p) => ensureRecursivePattern(p));
+	}
+
+	for (let pattern of exclude) {
+		let matches = glob.sync(pattern, GLOB_OPTS);
+		toExclude.push(...matches);
+	}
+
+	if (include.length) {
+		for (let pattern of include) {
+			let matches = glob.sync(pattern, GLOB_OPTS);
+			toInclude.push(...matches);
+		}
+
+		for (let pattern of toInclude) {
+			if (isDirPattern(pattern) && !isPathExcluded(pattern, dirs)) {
+				dirs.push(pattern);
+			} else if (!isPathExcluded(pattern, files)) {
+				files.push(pattern);
+			}
+		}
+	}
+
 	for await (let d of dirs) {
-		dirRes.push(await count_loc_of_dir(d, exclude, include, recursive, filetypes, commentStyles, excludeComments, excludeEmptyLines));
+		dirRes.push(await count_loc_of_dir(d, toExclude, recursive, filetypes, commentStyles, excludeComments, excludeEmptyLines));
 	}
 	for await (let f of files) {
-		fileRes.push({
-			name: path.basename(f),
-			count: await count_loc_of_file(f, commentStyles, excludeComments, excludeEmptyLines),
-		});
+		if (!isPathExcluded(f, toExclude)) {
+			fileRes.push({
+				name: path.basename(f),
+				count: await count_loc_of_file(f, commentStyles, excludeComments, excludeEmptyLines),
+			});
+		}
 	}
 
 	let res = { dirs: dirRes, files: fileRes };

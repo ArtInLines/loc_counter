@@ -1,9 +1,11 @@
+#! /usr/bin/env node
+
 const c = require('ansi-colors');
 const arg = require('arg');
 const fs = require('fs');
-const { join } = require('path');
+const { join, extname } = require('path');
 const { cwd } = require('process');
-const { count_loc } = require('./index');
+const { count_loc } = require('../index');
 
 // TODO: Use ansi-colors themes
 
@@ -116,6 +118,22 @@ const HELP_TEXT = `Sorry no help for you yet :(`;
 		}
 	}
 
+	const ensurePatterns = (arr) =>
+		arr
+			.map((str) => {
+				if (extname(str).toLowerCase() === '.json') {
+					let fpath = join(cwd(), str);
+					if (fs.existsSync(fpath)) {
+						return JSON.parse(fs.readFileSync(fpath, { encoding: 'utf-8' }));
+					}
+				}
+				return str;
+			})
+			.flat(Infinity);
+
+	let include = ensurePatterns(args['--include'] || []);
+	let exclude = ensurePatterns(args['--exclude'] || []);
+
 	// console.log(args, '\n\n');
 
 	const res = await count_loc(
@@ -124,12 +142,12 @@ const HELP_TEXT = `Sorry no help for you yet :(`;
 					if (d === '.' || d === './') return cwd();
 					else return d;
 			  })
-			: args['--file']?.length
+			: args['--file']?.length || include.length
 			? []
 			: [cwd()],
 		args['--file'] || [],
-		args['--include'] || [],
-		args['--exclude'] || [],
+		include,
+		exclude?.length ? exclude : defaultExclude,
 		args['--recursive'] || false,
 		args['--type'] || null,
 		args['--empty-lines'] || false,
@@ -159,7 +177,7 @@ const HELP_TEXT = `Sorry no help for you yet :(`;
 			}
 		}
 	}
-	if (res.files.length) console.log(c.bold.underline.cyan('\nFiles:'));
+	if (res.files.length) console.log(c.bold.underline.cyan('\nFiles: '));
 	for (let fRes of res.files) {
 		if (verbosity === 0 || verbosity) {
 			console.log(c.bold.blue(fRes.name) + ': ' + c.italic.yellow(fRes.count));
