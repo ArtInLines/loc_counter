@@ -9,8 +9,8 @@ const { count_loc } = require('../index');
 
 // TODO: Use ansi-colors themes
 
-const defaultCommentStyles = JSON.parse(fs.readFileSync('./commentStyles.json', { encoding: 'utf-8' }));
-const defaultExclude = JSON.parse(fs.readFileSync('./defaultExcludes.json', { encoding: 'utf-8' }));
+const defaultCommentStyles = JSON.parse(fs.readFileSync(join(__dirname, 'commentStyles.json'), { encoding: 'utf-8' }));
+const defaultExclude = JSON.parse(fs.readFileSync(join(__dirname, 'defaultExcludes.json'), { encoding: 'utf-8' }));
 
 const spec = {
 	'--help': Boolean,
@@ -145,7 +145,7 @@ const HELP_TEXT = `Sorry no help for you yet :(`;
 			: args['--file']?.length || include.length
 			? []
 			: [cwd()],
-		args['--file'] || [],
+		/* args['--file'] || */ [],
 		include,
 		exclude?.length ? exclude : defaultExclude,
 		args['--recursive'] || false,
@@ -170,7 +170,13 @@ const HELP_TEXT = `Sorry no help for you yet :(`;
 
 			console.log(`${c.bold.blue(dRes.name)}: ${f(dRes)}`);
 			for (let d of Object.keys(dRes.dirCounts)) {
-				console.log(`\t${c.italic.green('Directory ' + d)}: ${f(dRes.dirCounts[d])}`);
+				// TODO:
+				let indentation = 1;
+				let s = '';
+				for (let i = 0; i < indentation; i++) s += '\t';
+
+				s += `${c.italic.bold.blue(d)}: ${f(dRes.dirCounts[d])}`;
+				console.log(s);
 			}
 			for (let f of Object.keys(dRes.fileCounts)) {
 				console.log(`\t${c.italic.green('File ' + f)}: ${c.italic.yellow(dRes.fileCounts[f])}`);

@@ -143,9 +143,11 @@ async function count_loc_of_dir(dirpath, toExclude, recursive, fileTypes = null,
 			if (!isPathExcluded(dpath, toExclude)) {
 				let r = await count_loc_of_dir(dpath, toExclude, recursive, fileTypes, commentStyles, excludeComments, excludeEmptyLines);
 
-				dirCounts[d.name] = { totalCount: r.totalCount, nonRecDirCount: r.nonRecDirCount };
+				dirCounts[d.name] = { totalCount: r.totalCount, nonRecDirCount: r.nonRecDirCount, children: [], name: d.name };
 				for (let k of Object.keys(r.dirCounts)) {
-					dirCounts[d.name + '/' + k] = r.dirCounts[k];
+					if (!dirCounts[d.name]) dirCounts[d.name] = { totalCount: 0 };
+					dirCounts[d.name][k] = { totalCount: r.dirCounts[k].totalCount };
+					dirCounts[d.name].children.push(k);
 				}
 				for (let k of Object.keys(r.fileCounts)) {
 					fileCounts[d.name + '/' + k] = r.fileCounts[k];
@@ -154,7 +156,14 @@ async function count_loc_of_dir(dirpath, toExclude, recursive, fileTypes = null,
 			}
 		}
 	}
-	return { totalCount, nonRecDirCount, fileCounts, dirCounts, name: dirpath.split('/').at(-1).split('\\').at(-1) };
+	let getName = (dirpath) => {
+		let d = dirpath.split('/');
+		d = d.pop() || d.pop();
+		d = d.split('\\');
+		d = d.pop() || d.pop();
+		return d + '/';
+	};
+	return { totalCount, nonRecDirCount, fileCounts, dirCounts, name: getName(dirpath) };
 }
 
 async function count_loc(dirs, files, include, exclude, recursive, filetypes, excludeEmptyLines, excludeComments, commentStyles) {
